@@ -17,9 +17,6 @@ auxsix_FILES = Tweak.xm \
     modules/AuxHideDevice.xm \
     modules/AuxTTS.xm
 
-# 编译时能找到 Headers/WCPluginsHeader.h 和 common/*.h
-auxsix_CFLAGS = -I$(THEOS_PROJECT_DIR) -I$(THEOS_PROJECT_DIR)/Headers
-
 auxsix_INSTALL_PATH = /Library/MobileSubstrate/DynamicLibraries
 
 include $(THEOS_MAKE_PATH)/library.mk
