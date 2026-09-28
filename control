@@ -1,0 +1,10 @@
+Package: com.auxsix.auxsix
+Name: AuxSix
+Version: 1.0.0
+Architecture: iphoneos-arm64e
+Description: 微信增强插件：文字转语音/自动收红包/防撤回/广告净化/列表圆角/隐藏设备
+Maintainer: aux
+Author: aux
+Section: Utilities
+Depends: mobilesubstrate (>= 0.9.0) | roothide-compat
+Pre-Depends: rootless-compat (>= 0.9)
