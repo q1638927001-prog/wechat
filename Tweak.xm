@@ -1,17 +1,17 @@
+
 //
 //  Tweak.xm — AuxSix 入口（6 功能，设置走微信"第三方插件"页）
-//  参考 WechatEnhance 开源版：#import WCPluginsHeader.h 后直接调
-//  registerControllerWithTitle:version:controller:（第3参 = 类名字符串）。
+//  WCPluginsMgr 是微信内部类，编译期不存在 → 全用 NSClassFromString + NSInvocation
+//  动态调用，不 #import 微信头、不直接引用类符号，避免链接 undefined。
 //
 
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
-#import "Headers/WCPluginsHeader.h"
 
 #import "common/AuxConfig.h"
 #import "common/AuxSettingController.h"
 
-// 模块前向声明（实现在 modules/*.xm，这里只声明供本文件调用）
+// 模块前向声明（实现在 modules/*.xm）
 @interface AuxPreventRevoke : NSObject
 + (void)install;
 @end
@@ -48,33 +48,54 @@ static void auxInstallAll(void) {
 }
 
 // 注册到微信"第三方插件"设置页。
-// ⚠️ 第3参数是"类名字符串"（微信内部 NSClassFromString 实例化），不是 Class。
+// 第3参数是"类名字符串"（微信内部 NSClassFromString 实例化），不是 Class。
+// WCPluginsMgr 编译期不存在 → NSClassFromString + NSInvocation 动态调。
 static void auxRegisterInWeChatPlugins(void) {
     static BOOL tried = NO;
     if (tried) return;
-    if (!NSClassFromString(@"WCPluginsMgr")) {
-        NSLog(@"[AuxSix] WCPluginsMgr not found, skip register");
+
+    Class host = NSClassFromString(@"WCPluginsMgr");
+    if (!host) { NSLog(@"[AuxSix] WCPluginsMgr not found, skip register"); return; }
+
+    SEL selShared = NSSelectorFromString(@"sharedInstance");
+    if (![host respondsToSelector:selShared]) {
+        NSLog(@"[AuxSix] WCPluginsMgr has no sharedInstance");
         return;
     }
+    NSMethodSignature *s1 = [host methodSignatureForSelector:selShared];
+    NSInvocation *inv1 = [NSInvocation invocationWithMethodSignature:s1];
+    [inv1 setTarget:host];
+    [inv1 setSelector:selShared];
+    [inv1 invoke];
+    id mgr = nil;
+    [inv1 getReturnValue:&mgr];
+    if (!mgr) { NSLog(@"[AuxSix] WCPluginsMgr.sharedInstance nil"); return; }
+
     if (!NSClassFromString(@"AuxSettingController")) {
         NSLog(@"[AuxSix] AuxSettingController class missing");
         return;
     }
-    @try {
-        WCPluginsMgr *mgr = [WCPluginsMgr sharedInstance];
-        if (!mgr) { NSLog(@"[AuxSix] WCPluginsMgr.sharedInstance nil"); return; }
-        [mgr registerControllerWithTitle:@"AuxSix"
-                                  version:@"v1.0.0"
-                               controller:@"AuxSettingController"];
-        tried = YES;
-        NSLog(@"[AuxSix] registered in WCPluginsMgr (AuxSix v1.0.0 / AuxSettingController)");
-    } @catch (NSException *e) {
-        NSLog(@"[AuxSix] register exception: %@", e.reason);
+
+    SEL selReg = NSSelectorFromString(@"registerControllerWithTitle:version:controller:");
+    if (![mgr respondsToSelector:selReg]) {
+        NSLog(@"[AuxSix] no registerControllerWithTitle:version:controller:, skip");
+        return;
     }
+    NSMethodSignature *s2 = [mgr methodSignatureForSelector:selReg];
+    NSInvocation *inv2 = [NSInvocation invocationWithMethodSignature:s2];
+    [inv2 setTarget:mgr];
+    [inv2 setSelector:selReg];
+    NSString *title   = @"AuxSix";
+    NSString *version = @"v1.0.0";
+    NSString *ctrlCls = @"AuxSettingController";   // 类名字符串
+    [inv2 setArgument:&title   atIndex:2];
+    [inv2 setArgument:&version atIndex:3];
+    [inv2 setArgument:&ctrlCls atIndex:4];
+    [inv2 invoke];
+    tried = YES;
+    NSLog(@"[AuxSix] registered in WCPluginsMgr (AuxSix v1.0.0 / AuxSettingController)");
 }
 
-// 参考 WechatEnhance：hook 微信"我"页 MinimizeViewController viewDidLoad 注册（最稳）。
-// 双通道：didBecomeActive 兜底 + 10s/40s 主线程守护，auxInstalled 幂等。
 __attribute__((constructor))
 static void auxConstructor(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -118,14 +139,3 @@ static void auxConstructorGuard(void) {
         auxRegisterInWeChatPlugins();
     });
 }
-
-// 参考 WechatEnhance：微信"我"页(viewDidLoad)注册设置入口
-%hook MinimizeViewController
-- (void)viewDidLoad {
-    %orig;
-    dispatch_async(dispatch_get_main_queue(), ^{
-        auxInstallAll();
-        auxRegisterInWeChatPlugins();
-    });
-}
-%end
